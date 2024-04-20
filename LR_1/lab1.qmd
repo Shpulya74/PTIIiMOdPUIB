@@ -1,0 +1,8 @@
+---
+title: "Лабораторная работа №1"
+author: "Поспелова Ульяна БИСО-03-20"
+format: 
+    md:
+        output-file: README.md
+editor: visual
+---
