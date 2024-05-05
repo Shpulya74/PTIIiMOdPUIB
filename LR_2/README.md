@@ -5,7 +5,7 @@
 
 Созданный дашборд можно увидеть по ссылке:
 
-https://datalens.yandex.cloud/3i2v1pfsp0cmr-rezultaty-analiza-dannyh-setevoy-aktivnosti
+https://datalens.yandex/3i2v1pfsp0cmr
 
 ## Цель работы
 
