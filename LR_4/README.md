@@ -33,6 +33,61 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 
 ## Ход работы
 
+### Импорт данных
+
+``` r
+library(duckdb)
+```
+
+    Loading required package: DBI
+
+``` r
+library(dplyr)
+```
+
+
+    Attaching package: 'dplyr'
+
+    The following objects are masked from 'package:stats':
+
+        filter, lag
+
+    The following objects are masked from 'package:base':
+
+        intersect, setdiff, setequal, union
+
+``` r
+library(tidyverse)
+```
+
+    ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ✔ forcats   1.0.0     ✔ readr     2.1.5
+    ✔ ggplot2   3.4.4     ✔ stringr   1.5.1
+    ✔ lubridate 1.9.3     ✔ tibble    3.2.1
+    ✔ purrr     1.0.2     ✔ tidyr     1.3.1
+    ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ✖ dplyr::filter() masks stats::filter()
+    ✖ dplyr::lag()    masks stats::lag()
+    ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+``` r
+library(lubridate)
+```
+
+``` r
+con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+dbExecute(conn = con, "INSTALL httpfs; LOAD httpfs;")
+```
+
+    [1] 0
+
+``` r
+PARQUET_FILE1 = "https://storage.yandexcloud.net/arrow-datasets/tm_data.pqt"
+
+sqlQuery <- "SELECT * FROM read_parquet([?])"
+df <- dbGetQuery(con, sqlQuery, list(PARQUET_FILE1))
+```
+
 ### Задание 1: Найдите утечку данных из Вашей сети
 
 Важнейшие документы с результатами нашей исследовательской деятельности
@@ -43,6 +98,18 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 
 Определите его IP-адрес.
 
+``` r
+leak <- df  %>% select(src, dst, bytes) %>% filter(!str_detect(dst, '1[2-4].*')) %>% group_by(src) %>% summarise(bytes_amount = sum(bytes)) %>% arrange(desc(bytes_amount)) %>% collect()
+leak %>% head(1)
+```
+
+    # A tibble: 1 × 2
+      src          bytes_amount
+      <chr>               <dbl>
+    1 13.37.84.125   5765792351
+
+IP-адрес этого компьютера: 13.37.84.125
+
 ### Задание 2: Найдите утечку данных 2
 
 Другой атакующий установил автоматическую задачу в системном
@@ -52,6 +119,52 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 
 Определите IP этой системы. Известно, что ее IP адрес отличается от
 нарушителя из предыдущей задачи.
+
+``` r
+library(lubridate)
+df_normaltime_by_traffic_size <- df %>% select(timestamp, src, dst, bytes) %>% filter(!str_detect(dst, '1[2-4].*')) %>% mutate(timestamp = hour(as_datetime(timestamp/1000))) %>% group_by(timestamp) %>% summarize(traffic_size = sum(bytes)) %>% arrange(desc(traffic_size))
+df_normaltime_by_traffic_size %>% collect() %>% print(n = Inf)
+```
+
+    # A tibble: 24 × 2
+       timestamp traffic_size
+           <int>        <dbl>
+     1        18  60193966072
+     2        23  60192411947
+     3        21  60168340116
+     4        16  60098320900
+     5        20  60080805313
+     6        17  60038805616
+     7        22  60019583499
+     8        19  59993406253
+     9         7   2407989038
+    10        12   2273682799
+    11         3   2272781208
+    12         6   2272628627
+    13         0   2272231719
+    14        13   2269391474
+    15         8   2256895552
+    16        15   2256892969
+    17         9   2255747421
+    18         5   2254830735
+    19        14   2253404224
+    20         2   2250935353
+    21         4   2247503973
+    22        10   2246424468
+    23        11   2245261098
+    24         1   2241313453
+
+``` r
+df_traffic_no_worktime_anomaly <- df %>% select(timestamp, src, dst, bytes) %>% mutate(timestamp = hour(as_datetime(timestamp/1000))) %>% filter(!str_detect(dst, '1[2-4].*') & timestamp >= 0 & timestamp <= 15)  %>% group_by(src) %>% summarise(bytes_amount = sum(bytes)) %>% arrange(desc(bytes_amount)) %>% collect()
+df_traffic_no_worktime_anomaly %>% filter(src != '13.37.84.125') %>% head(1)
+```
+
+    # A tibble: 1 × 2
+      src         bytes_amount
+      <chr>              <int>
+    1 12.55.77.96    194447613
+
+IP-адрес этой системы: 12.55.77.96
 
 ### Задание 3: Найдите утечку данных 3
 
@@ -64,6 +177,32 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 Определите IP этой системы. Известно, что ее IP адрес отличается от
 нарушителей из предыдущих задач.
 
+``` r
+average_ports_traffic <- df |> select(timestamp, src, dst, port, bytes) %>% filter(!str_detect(dst, '1[2-4].')) %>% group_by(src, port) %>% summarise(bytes_ip_port = sum(bytes)) %>% group_by(port) %>% summarise(average_port_traffic = mean(bytes_ip_port)) %>% arrange(desc(average_port_traffic)) |> collect()
+```
+
+    `summarise()` has grouped output by 'src'. You can override using the `.groups`
+    argument.
+
+``` r
+max_ips_ports_traffic <- df |> select(timestamp, src, dst, port, bytes) %>% filter(!str_detect(dst, '1[2-4].')) %>% group_by(src, port) %>% summarise(bytes_ip_port = sum(bytes)) %>% collect() %>% group_by(port) %>% top_n(1, bytes_ip_port) %>% arrange(desc(bytes_ip_port))
+```
+
+    `summarise()` has grouped output by 'src'. You can override using the `.groups`
+    argument.
+
+``` r
+merged_df <- merge(max_ips_ports_traffic, average_ports_traffic, by = "port")
+
+anomaly_ip_port_traffic <- merged_df %>% mutate(average_anomaly = bytes_ip_port/average_port_traffic) %>% arrange(desc(average_anomaly)) %>% head(1)
+anomaly_ip_port_traffic
+```
+
+      port         src bytes_ip_port average_port_traffic average_anomaly
+    1  124 12.30.96.87        281993             15641.06        18.02902
+
+IP-адрес этой системы: 12.30.96.87
+
 ### Задание 4: Обнаружение канала управления
 
 Зачастую в корпоротивных сетях находятся ранее зараженные системы,
@@ -72,6 +211,17 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 с одинаковыми параметрами – в данном случае с одинаковым номером порта.
 
 Какой номер порта используется бот-панелью для управления ботами?
+
+``` r
+sql <- "SELECT min(bytes),max(bytes),max(bytes) - min(bytes), avg(bytes), port,count(port) FROM read_parquet([?]) group by port having avg(bytes) - min(bytes) < 10 and min(bytes) != max(bytes)"
+df <- dbGetQuery(con, sql, list(PARQUET_FILE1))
+df %>% select(port)
+```
+
+      port
+    1  124
+
+Номер порта: 124
 
 ### Задание 5: Обнаружение P2P трафика
 
@@ -86,6 +236,11 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 Какой уникальный порт используется этой бот сетью для внутреннего
 общения между собой?
 
+    df2 <- dbGetQuery(con, "SELECT min(bytes),max(bytes),max(bytes) - min(bytes) as anomaly, avg(bytes), port,count(port) FROM data where (src LIKE '12.%' or src LIKE '13.%' or src LIKE '14.%') and (dst LIKE '12.%' or dst LIKE '13.%' or dst LIKE '14.%') group by port order by anomaly desc limit 1")
+    df2 %>% select(port)
+
+Номер порта: 115
+
 ### Задание 6: Чемпион малвари
 
 Нашу сеть только что внесли в списки спам-ферм. Один из хостов сети
@@ -94,3 +249,15 @@ Rstudio Server, развернутую в Yandex Cloud, выполнить за�
 у данного хоста нет.
 
 Определите IP такого хоста.
+
+    z6 <- df %>%
+      filter(str_detect(src, "^12.") | str_detect(src, "^13.") | str_detect(src, "^14."))  %>%
+      filter(str_detect(dst, "^12.") | str_detect(dst, "^13.") | str_detect(dst, "^14."))  %>% group_by(src) %>% summarise(count = n()) %>% arrange(desc(count)) %>% slice(1)
+    z6 |> collect()
+
+IP-адрес этого хоста: 13.42.70.40
+
+### Вывод
+
+В ходе данной работы были изучены возможности СУБД DuckDB для обработки
+и анализ больших данных.
